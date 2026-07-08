@@ -1,0 +1,34 @@
+{
+  "compilerOptions": {
+    /* Project Structure */
+    "rootDir": "./src",
+    "outDir": "./dist",
+
+    /* Language and Environment */
+    "target": "ES2022",
+    "module": "nodenext",
+    "moduleResolution": "nodeNext",
+    "lib": ["ES2022"],
+
+    /* Type Definitions */
+    "types": ["node"],
+
+    /* Module Interoperability */
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+
+    /* Strict Type Checking */
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* Output */
+    "sourceMap": true,
+
+    /* Misc */
+    "noEmitOnError": true
+  },
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
+}
