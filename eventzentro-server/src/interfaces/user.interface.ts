@@ -1,55 +1,59 @@
-import { Document } from "mongoose";
+import { Document, Types } from "mongoose";
 
 export enum UserRole {
-    USER = "user",
-    ORGANIZER = "organizer",
-    ADMIN = "admin",
+  USER = "user",
+  ORGANIZER = "organizer",
+  ADMIN = "admin",
+}
+
+export enum AuthProvider {
+  LOCAL = "local",
+  GOOGLE = "google",
+  GITHUB = "github",
 }
 
 export interface IAddress {
-    country?: string;
-    state?: string;
-    city?: string;
-    zipCode?: string;
+  country?: string;
+  state?: string;
+  city?: string;
+  zipCode?: string;
 }
 
 export interface IUser extends Document {
-    firstName: string;
-    lastName: string;
-    userName: string;
+  _id: Types.ObjectId;
 
-    email: string;
-    phone: string;
-    password: string;
+  firstName: string;
+  lastName?: string;
+  email: string;
+  password?: string;
 
-    profileImage?: string;
-    bio?: string;
+  role: UserRole;
+  provider: AuthProvider;
 
-    role: string;
+  isVerified: boolean;
+  isBlocked: boolean;
+  isDeleted: boolean;
 
-    isVerified: boolean;
+  profileImage?: string;
+  bio?: string;
+  address?: IAddress;
 
-    verificationOTP?: string;
-    verificationOTPExpiry?: Date;
+  verificationOTP?: string;
+  verificationOTPExpiry?: Date;
 
-    refreshToken?: string;
+  passwordResetToken?: string;
+  passwordResetExpires?: Date;
+  passwordChangedAt?: Date;
 
-    passwordChangedAt?: Date;
+  refreshToken?: string;
+  lastLogin?: Date;
 
-    isBlocked: boolean;
-    isDeleted: boolean;
+  googleId?: string;
+  githubId?: string;
 
-    lastLogin?: Date;
+  favoriteCategories?: string[];
+  interestedEvents?: Types.ObjectId[];
 
-    googleId?: string;
-    githubId?: string;
-
-    address?: IAddress;
-
-    favoriteCategories?: string[];
-    interestedEvents?: string[];
-
-    createdAt: Date;
-    updatedAt: Date;
-
+  createdAt: Date;
+  updatedAt: Date;
 }
