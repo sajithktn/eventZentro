@@ -11,7 +11,6 @@ import {
   googleCallback,
   getCurrentUser,
   logout,
-  becomeOrganizer,
   updateProfile,
 } from "../controllers/auth.controller";
 
@@ -49,8 +48,6 @@ router.get("/google/callback", passport.authenticate("google", { session: false,
 router.get("/me", protect, getCurrentUser);
 
 router.patch("/profile", protect, updateProfile);
-
-router.patch("/become-organizer", protect, becomeOrganizer);
 
 router.post("/logout", logout);
 

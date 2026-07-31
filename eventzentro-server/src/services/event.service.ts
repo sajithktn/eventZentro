@@ -1,9 +1,20 @@
-import { QueryFilter } from "mongoose";
+import {
+  isValidObjectId,
+  QueryFilter,
+  Types,
+} from "mongoose";
 import {
   PaginatedApiResponse,
 } from "../interfaces/pagination.interface";
+import { IBooking } from "../interfaces/booking.interface";
 import { IEvent } from "../interfaces/event.interface";
+import Booking from "../models/booking.model";
+import Category from "../models/category.model";
+import Promotion from "../models/coupon.model";
 import Event from "../models/event.model";
+import {
+  getBestPromotionSummariesForEvents,
+} from "./coupon.service";
 import {
   buildPaginationMetadata,
   escapeRegExp,
@@ -15,6 +26,20 @@ interface GetAllEventsServiceOptions {
   query: ParsedPaginationQuery;
   organizerId?: string;
   includeAllOrganizers?: boolean;
+}
+
+type EventResponse = IEvent & {
+  bestPromotion?: IEvent["bestPromotion"];
+};
+
+export class EventServiceError extends Error {
+  statusCode: number;
+
+  constructor(message: string, statusCode = 400) {
+    super(message);
+    this.name = "EventServiceError";
+    this.statusCode = statusCode;
+  }
 }
 
 type SortDirection = 1 | -1;
@@ -36,15 +61,20 @@ const getEventSort = (sort?: string): EventSort => {
   switch (sort) {
     case "oldest":
       return { createdAt: 1 };
+
     case "soonest":
     case "date-asc":
       return { eventDate: 1 };
+
     case "date-desc":
       return { eventDate: -1 };
+
     case "price-low":
       return { ticketPrice: 1 };
+
     case "price-high":
       return { ticketPrice: -1 };
+
     case "newest":
     default:
       return { createdAt: -1 };
@@ -75,6 +105,123 @@ const getDateBoundary = (
   return date;
 };
 
+const addFilterCondition = (
+  filter: QueryFilter<IEvent>,
+  condition: QueryFilter<IEvent>
+) => {
+  filter.$and = [
+    ...(filter.$and || []),
+    condition,
+  ];
+};
+
+const getCleanLocationString = (value: unknown) =>
+  typeof value === "string" ? value.trim() : "";
+
+const getActiveCategoryNameOrThrow = async (
+  categoryName: string
+) => {
+  const cleanedCategoryName = categoryName.trim();
+
+  if (!cleanedCategoryName) {
+    throw new EventServiceError(
+      "Event category is required.",
+      400
+    );
+  }
+
+  const category = await Category.findOne({
+    name: {
+      $regex: `^${escapeRegExp(cleanedCategoryName)}$`,
+      $options: "i",
+    },
+    isActive: true,
+  }).select("name");
+
+  if (!category) {
+    throw new EventServiceError(
+      "Selected category is invalid or inactive.",
+      400
+    );
+  }
+
+  return category.name;
+};
+
+type ReferenceId =
+  | string
+  | Types.ObjectId
+  | {
+      _id?: string | Types.ObjectId | null;
+    };
+
+const getReferenceIdString = (
+  value: ReferenceId | null | undefined,
+  label: string
+) => {
+  if (!value) {
+    throw new Error(`${label} is missing.`);
+  }
+
+  if (typeof value === "string") {
+    if (!isValidObjectId(value)) {
+      throw new Error(`Invalid ${label}.`);
+    }
+
+    return value;
+  }
+
+  if (value instanceof Types.ObjectId) {
+    return value.toString();
+  }
+
+  if (!value._id) {
+    throw new Error(`${label} is missing.`);
+  }
+
+  return getReferenceIdString(value._id, label);
+};
+
+const getObjectIdOrThrow = (
+  value: string,
+  label: string
+) => {
+  if (!isValidObjectId(value)) {
+    throw new EventServiceError(`Invalid ${label}.`, 400);
+  }
+
+  return new Types.ObjectId(value);
+};
+
+const getPopulatedEventById = async (
+  eventId: string | Types.ObjectId
+) =>
+  Event.findById(eventId).populate(
+    "organizer",
+    "firstName lastName email profileImage"
+  );
+
+const withBestPromotions = async (
+  events: IEvent[]
+) => {
+  const bestPromotions =
+    await getBestPromotionSummariesForEvents(
+      events.map((event) => ({
+        _id: event._id,
+        ticketPrice: event.ticketPrice,
+      }))
+    );
+
+  return events.map((event) => {
+    const object = event.toObject() as EventResponse;
+
+    object.bestPromotion =
+      bestPromotions.get(event._id.toString()) || null;
+
+    return object;
+  });
+};
+
 const buildEventFilter = (
   query: ParsedPaginationQuery,
   organizerId?: string,
@@ -96,6 +243,7 @@ const buildEventFilter = (
       { title: searchRegex },
       { description: searchRegex },
       { category: searchRegex },
+      { city: searchRegex },
       { venue: searchRegex },
     ];
   }
@@ -110,7 +258,10 @@ const buildEventFilter = (
     );
   }
 
-  if (query.status && query.status.toLowerCase() !== "all") {
+  if (
+    query.status &&
+    query.status.toLowerCase() !== "all"
+  ) {
     const normalizedStatus = query.status.toLowerCase();
 
     if (
@@ -118,15 +269,35 @@ const buildEventFilter = (
         normalizedStatus as IEvent["status"]
       )
     ) {
-      filter.status = normalizedStatus as IEvent["status"];
+      filter.status =
+        normalizedStatus as IEvent["status"];
     }
   }
 
-  if (query.location) {
-    filter.venue = new RegExp(
-      escapeRegExp(query.location),
-      "i"
+  if (
+    query.location &&
+    query.location.toLowerCase() !== "all"
+  ) {
+    const escapedLocation = escapeRegExp(
+      query.location
     );
+
+    addFilterCondition(filter, {
+      $or: [
+        {
+          city: new RegExp(
+            `^${escapedLocation}$`,
+            "i"
+          ),
+        },
+        {
+          venue: new RegExp(
+            escapedLocation,
+            "i"
+          ),
+        },
+      ],
+    });
   }
 
   if (
@@ -149,8 +320,15 @@ const buildEventFilter = (
     filter.ticketPrice = ticketPriceFilter;
   }
 
-  const dateFrom = getDateBoundary(query.dateFrom, false);
-  const dateTo = getDateBoundary(query.dateTo, true);
+  const dateFrom = getDateBoundary(
+    query.dateFrom,
+    false
+  );
+
+  const dateTo = getDateBoundary(
+    query.dateTo,
+    true
+  );
 
   if (dateFrom || dateTo) {
     const eventDateFilter: {
@@ -176,10 +354,15 @@ export const createEventService = async (
   data: CreateEventInput,
   organizerId: string
 ) => {
+  const categoryName =
+    await getActiveCategoryNameOrThrow(data.category);
+
   const event = await Event.create({
     title: data.title,
     description: data.description,
-    category: data.category,
+    category: categoryName,
+
+    city: data.city,
     venue: data.venue,
 
     eventDate: new Date(data.eventDate),
@@ -197,7 +380,9 @@ export const createEventService = async (
     status: "published",
   });
 
-  const populatedEvent = await Event.findById(event._id).populate(
+  const populatedEvent = await Event.findById(
+    event._id
+  ).populate(
     "organizer",
     "firstName lastName email profileImage"
   );
@@ -208,11 +393,12 @@ export const createEventService = async (
   };
 };
 
-
 export const getAllEventsService = async (
   options?: GetAllEventsServiceOptions
-): Promise<PaginatedApiResponse<IEvent>> => {
-  const query = options?.query || defaultPaginationQuery;
+): Promise<PaginatedApiResponse<EventResponse>> => {
+  const query =
+    options?.query || defaultPaginationQuery;
+
   const filter = buildEventFilter(
     query,
     options?.organizerId,
@@ -221,17 +407,23 @@ export const getAllEventsService = async (
 
   const [events, totalItems] = await Promise.all([
     Event.find(filter)
-    .populate("organizer", "firstName lastName email profileImage")
-    .sort(getEventSort(query.sort))
-    .skip(query.skip)
-    .limit(query.limit),
+      .populate(
+        "organizer",
+        "firstName lastName email profileImage"
+      )
+      .sort(getEventSort(query.sort))
+      .skip(query.skip)
+      .limit(query.limit),
+
     Event.countDocuments(filter),
   ]);
+
+  const eventData = await withBestPromotions(events);
 
   return {
     success: true,
     message: "Events fetched successfully.",
-    data: events,
+    data: eventData,
     pagination: buildPaginationMetadata(
       query.page,
       query.limit,
@@ -240,18 +432,357 @@ export const getAllEventsService = async (
   };
 };
 
+export const getEventLocationsService = async () => {
+  const events = await Event.find({
+    status: "published",
+    $or: [
+      {
+        city: {
+          $exists: true,
+          $type: "string",
+          $ne: "",
+        },
+      },
+      {
+        venue: {
+          $exists: true,
+          $type: "string",
+          $ne: "",
+        },
+      },
+    ],
+  }).select("city venue");
 
-export const getEventByIdService = async (eventId: string) => {
-  const event = await Event.findById(eventId).populate(
-    "organizer",
-    "firstName lastName email profileImage"
+  const locationMap = new Map<string, string>();
+
+  events.forEach((event) => {
+    const location =
+      getCleanLocationString(event.city) ||
+      getCleanLocationString(event.venue);
+
+    const locationKey = location.toLowerCase();
+
+    if (!location || locationMap.has(locationKey)) {
+      return;
+    }
+
+    locationMap.set(locationKey, location);
+  });
+
+  return [...locationMap.values()].sort(
+    (firstLocation, secondLocation) =>
+      firstLocation.localeCompare(secondLocation)
+  );
+};
+
+export const getEventByIdService = async (
+  eventId: string
+) => {
+  const eventObjectId = getObjectIdOrThrow(
+    eventId,
+    "event ID"
   );
 
+  const event =
+    await getPopulatedEventById(eventObjectId);
+
   if (!event) {
-    throw new Error("Event not found.");
+    throw new EventServiceError(
+      "Event not found.",
+      404
+    );
   }
 
-  return event;
+  const [eventData] =
+    await withBestPromotions([event]);
+
+  return eventData;
+};
+
+export const getOrganizerEventByIdService = async (
+  eventId: string,
+  organizerId: string,
+  role: string
+) => {
+  const eventObjectId = getObjectIdOrThrow(
+    eventId,
+    "event ID"
+  );
+
+  const event =
+    await getPopulatedEventById(eventObjectId);
+
+  if (!event) {
+    throw new EventServiceError(
+      "Event not found.",
+      404
+    );
+  }
+
+  if (
+    role !== "admin" &&
+    getReferenceIdString(
+      event.organizer,
+      "Organizer ID"
+    ) !== organizerId
+  ) {
+    throw new EventServiceError(
+      "You can only access your own events.",
+      403
+    );
+  }
+
+  const [eventData] =
+    await withBestPromotions([event]);
+
+  return eventData;
+};
+
+export const getOrganizerDashboardService = async (
+  organizerId: string
+) => {
+  const organizerObjectId = getObjectIdOrThrow(
+    organizerId,
+    "organizer ID"
+  );
+
+  const eventFilter: QueryFilter<IEvent> = {
+    organizer: organizerObjectId,
+  };
+
+  const [statusCounts, ownedEvents, recentEvents] =
+    await Promise.all([
+      Event.aggregate<{
+        _id: IEvent["status"];
+        count: number;
+      }>([
+        {
+          $match: {
+            organizer: organizerObjectId,
+          },
+        },
+        {
+          $group: {
+            _id: "$status",
+            count: {
+              $sum: 1,
+            },
+          },
+        },
+      ]),
+
+      Event.find(eventFilter).select("_id"),
+
+      Event.find(eventFilter)
+        .populate(
+          "organizer",
+          "firstName lastName email profileImage"
+        )
+        .sort({
+          createdAt: -1,
+        })
+        .limit(4),
+    ]);
+
+  const eventIds = ownedEvents.map(
+    (event) => event._id
+  );
+
+  const bookingMatch: QueryFilter<IBooking> | null =
+    eventIds.length > 0
+      ? {
+          event: {
+            $in: eventIds,
+          },
+          status: "confirmed" as IBooking["status"],
+          paymentStatus:
+            "paid" as IBooking["paymentStatus"],
+        }
+      : null;
+
+  const [bookingStats, recentBookings] =
+    bookingMatch
+      ? await Promise.all([
+          Booking.aggregate<{
+            _id: null;
+            totalBookings: number;
+            totalTicketsSold: number;
+            totalGrossRevenue: number;
+            totalAdminCommission: number;
+            totalOrganizerEarnings: number;
+          }>([
+            {
+              $match: bookingMatch,
+            },
+            {
+              $group: {
+                _id: null,
+
+                totalBookings: {
+                  $sum: 1,
+                },
+
+                totalTicketsSold: {
+                  $sum: {
+                    $ifNull: [
+                      "$ticketCount",
+                      "$quantity",
+                    ],
+                  },
+                },
+
+                totalGrossRevenue: {
+                  $sum: {
+                    $cond: [
+                      {
+                        $gt: [
+                          {
+                            $ifNull: [
+                              "$amountPaid",
+                              0,
+                            ],
+                          },
+                          0,
+                        ],
+                      },
+                      "$amountPaid",
+                      {
+                        $ifNull: [
+                          "$finalAmount",
+                          "$totalAmount",
+                        ],
+                      },
+                    ],
+                  },
+                },
+
+                totalAdminCommission: {
+                  $sum: {
+                    $ifNull: [
+                      "$adminCommissionAmount",
+                      {
+                        $ifNull: [
+                          "$adminCommission",
+                          0,
+                        ],
+                      },
+                    ],
+                  },
+                },
+
+                totalOrganizerEarnings: {
+                  $sum: {
+                    $ifNull: [
+                      "$organizerEarnings",
+                      {
+                        $subtract: [
+                          {
+                            $cond: [
+                              {
+                                $gt: [
+                                  {
+                                    $ifNull: [
+                                      "$amountPaid",
+                                      0,
+                                    ],
+                                  },
+                                  0,
+                                ],
+                              },
+                              "$amountPaid",
+                              {
+                                $ifNull: [
+                                  "$finalAmount",
+                                  "$totalAmount",
+                                ],
+                              },
+                            ],
+                          },
+                          {
+                            $ifNull: [
+                              "$adminCommissionAmount",
+                              {
+                                $ifNull: [
+                                  "$adminCommission",
+                                  0,
+                                ],
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          ]),
+
+          Booking.find(bookingMatch)
+            .populate(
+              "user",
+              "firstName lastName email"
+            )
+            .populate({
+              path: "event",
+              populate: {
+                path: "organizer",
+                select:
+                  "firstName lastName email",
+              },
+            })
+            .sort({
+              createdAt: -1,
+            })
+            .limit(5),
+        ])
+      : [[], []];
+
+  const statusMap = statusCounts.reduce<
+    Record<IEvent["status"], number>
+  >(
+    (counts, item) => ({
+      ...counts,
+      [item._id]: item.count,
+    }),
+    {
+      draft: 0,
+      published: 0,
+      cancelled: 0,
+    }
+  );
+
+  const stats = bookingStats[0] || {
+    totalBookings: 0,
+    totalTicketsSold: 0,
+    totalGrossRevenue: 0,
+    totalAdminCommission: 0,
+    totalOrganizerEarnings: 0,
+  };
+
+  return {
+    success: true,
+    message:
+      "Organizer dashboard fetched successfully.",
+    statistics: {
+      totalEvents: ownedEvents.length,
+      publishedEvents: statusMap.published,
+      draftEvents: statusMap.draft,
+      cancelledEvents: statusMap.cancelled,
+      totalTicketsSold: stats.totalTicketsSold,
+      totalBookings: stats.totalBookings,
+      totalRevenue: stats.totalGrossRevenue,
+      totalGrossRevenue: stats.totalGrossRevenue,
+      totalAdminCommission:
+        stats.totalAdminCommission,
+      totalOrganizerEarnings:
+        stats.totalOrganizerEarnings,
+    },
+    recentEvents: await withBestPromotions(
+      recentEvents
+    ),
+    recentBookings,
+  };
 };
 
 export const updateEventService = async (
@@ -260,17 +791,31 @@ export const updateEventService = async (
   role: string,
   data: CreateEventInput
 ) => {
-  const event = await Event.findById(eventId);
+  const eventObjectId = getObjectIdOrThrow(
+    eventId,
+    "event ID"
+  );
+
+  const event = await Event.findById(eventObjectId);
 
   if (!event) {
-    throw new Error("Event not found.");
+    throw new EventServiceError(
+      "Event not found.",
+      404
+    );
   }
 
   if (
     role !== "admin" &&
-    event.organizer.toString() !== organizerId
+    getReferenceIdString(
+      event.organizer,
+      "Organizer ID"
+    ) !== organizerId
   ) {
-    throw new Error("You can only edit your own events.");
+    throw new EventServiceError(
+      "You can only edit your own events.",
+      403
+    );
   }
 
   const soldTickets = Math.max(
@@ -279,26 +824,50 @@ export const updateEventService = async (
   );
 
   if (data.totalTickets < soldTickets) {
-    throw new Error(
-      `Total tickets cannot be less than already sold tickets (${soldTickets}).`
+    throw new EventServiceError(
+      `Total tickets cannot be less than already sold tickets (${soldTickets}).`,
+      400
     );
+  }
+
+  let categoryName = event.category;
+
+  const currentCategory =
+    event.category.trim().toLowerCase();
+
+  const selectedCategory =
+    data.category.trim().toLowerCase();
+
+  if (currentCategory !== selectedCategory) {
+    categoryName =
+      await getActiveCategoryNameOrThrow(
+        data.category
+      );
   }
 
   event.title = data.title;
   event.description = data.description;
-  event.category = data.category;
+  event.category = categoryName;
+
+  event.city = data.city;
   event.venue = data.venue;
+
   event.eventDate = new Date(data.eventDate);
   event.startTime = data.startTime;
   event.endTime = data.endTime;
+
   event.ticketPrice = data.ticketPrice;
   event.totalTickets = data.totalTickets;
-  event.availableTickets = data.totalTickets - soldTickets;
+  event.availableTickets =
+    data.totalTickets - soldTickets;
+
   event.bannerImage = data.bannerImage || "";
 
   await event.save();
 
-  const updatedEvent = await Event.findById(event._id).populate(
+  const updatedEvent = await Event.findById(
+    event._id
+  ).populate(
     "organizer",
     "firstName lastName email profileImage"
   );
@@ -306,5 +875,72 @@ export const updateEventService = async (
   return {
     message: "Event updated successfully.",
     event: updatedEvent,
+  };
+};
+
+export const deleteEventService = async (
+  eventId: string,
+  organizerId: string,
+  role: string
+) => {
+  const eventObjectId = getObjectIdOrThrow(
+    eventId,
+    "event ID"
+  );
+
+  const event = await Event.findById(eventObjectId);
+
+  if (!event) {
+    throw new EventServiceError(
+      "Event not found.",
+      404
+    );
+  }
+
+  if (
+    role !== "admin" &&
+    getReferenceIdString(
+      event.organizer,
+      "Organizer ID"
+    ) !== organizerId
+  ) {
+    throw new EventServiceError(
+      "You can only delete your own events.",
+      403
+    );
+  }
+
+  const bookingCount =
+    await Booking.countDocuments({
+      event: eventObjectId,
+    });
+
+  if (bookingCount > 0) {
+    throw new EventServiceError(
+      "This event has booking history and cannot be deleted.",
+      409
+    );
+  }
+
+  await Promotion.updateMany(
+    {
+      event: eventObjectId,
+      isDeleted: false,
+    },
+    {
+      $set: {
+        isDeleted: true,
+        status: "inactive",
+        isActive: false,
+      },
+    }
+  );
+
+  await event.deleteOne();
+
+  return {
+    success: true,
+    message: "Event deleted successfully.",
+    eventId,
   };
 };

@@ -45,6 +45,15 @@ const getCleanString = (value: unknown) => {
     : "";
 };
 
+const getCleanOptionalString = (
+  primaryValue: unknown,
+  fallbackValue?: unknown
+) => {
+  const primary = getCleanString(primaryValue);
+
+  return primary || getCleanString(fallbackValue);
+};
+
 export const register = async (
   req: Request,
   res: Response
@@ -254,81 +263,6 @@ export const logout = async (
   }
 };
 
-export const becomeOrganizer = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
-  try {
-    if (!req.user) {
-      res.status(401).json({
-        success: false,
-        message: "Unauthorized user.",
-      });
-
-      return;
-    }
-
-    if (
-      req.user.role === "organizer" ||
-      req.user.role === "admin"
-    ) {
-      setAuthCookie(res, req.user);
-
-      res.status(200).json({
-        success: true,
-        message:
-          req.user.role === "admin"
-            ? "Admin already has organizer access."
-            : "You are already an organizer.",
-        user: req.user,
-      });
-
-      return;
-    }
-
-    const updatedUser =
-      await User.findByIdAndUpdate(
-        req.user._id,
-        {
-          role: "organizer",
-        },
-        {
-          new: true,
-          runValidators: true,
-        }
-      ).select(
-        "-password -refreshToken"
-      );
-
-    if (!updatedUser) {
-      res.status(404).json({
-        success: false,
-        message: "User not found.",
-      });
-
-      return;
-    }
-
-    setAuthCookie(res, updatedUser);
-
-    res.status(200).json({
-      success: true,
-      message:
-        "You are now an organizer.",
-      user: updatedUser,
-    });
-  } catch (error) {
-    const err = error as Error;
-
-    res.status(500).json({
-      success: false,
-      message:
-        err.message ||
-        "Failed to become an organizer.",
-    });
-  }
-};
-
 export const updateProfile = async (
   req: Request,
   res: Response
@@ -366,6 +300,50 @@ export const updateProfile = async (
         ? req.body.address
         : {};
 
+    const socialLinks =
+      typeof req.body.socialLinks ===
+        "object" &&
+      req.body.socialLinks !== null
+        ? req.body.socialLinks
+        : {};
+
+    const organizerName = getCleanString(
+      req.body.organizerName
+    );
+
+    const companyName = getCleanString(
+      req.body.companyName
+    );
+
+    const organizerCategory = getCleanString(
+      req.body.organizerCategory
+    );
+
+    const website = getCleanOptionalString(
+      req.body.website,
+      socialLinks.website
+    );
+
+    const instagram = getCleanOptionalString(
+      req.body.instagram,
+      socialLinks.instagram
+    );
+
+    const facebook = getCleanOptionalString(
+      req.body.facebook,
+      socialLinks.facebook
+    );
+
+    const linkedin = getCleanOptionalString(
+      req.body.linkedin,
+      socialLinks.linkedin
+    );
+
+    const twitter = getCleanOptionalString(
+      req.body.twitter,
+      socialLinks.twitter
+    );
+
     if (!firstName) {
       res.status(400).json({
         success: false,
@@ -395,6 +373,14 @@ export const updateProfile = async (
             lastName,
             profileImage,
             bio,
+            organizerName,
+            companyName,
+            organizerCategory,
+            website,
+            instagram,
+            facebook,
+            linkedin,
+            twitter,
 
             address: {
               country: getCleanString(
@@ -412,6 +398,14 @@ export const updateProfile = async (
               zipCode: getCleanString(
                 address.zipCode
               ),
+            },
+
+            socialLinks: {
+              website,
+              instagram,
+              facebook,
+              linkedin,
+              twitter,
             },
           },
         },

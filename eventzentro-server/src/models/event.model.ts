@@ -18,11 +18,19 @@ const eventSchema = new Schema<IEvent>(
     category: {
       type: String,
       required: true,
+      trim: true,
+    },
+
+    city: {
+      type: String,
+      required: true,
+      trim: true,
     },
 
     venue: {
       type: String,
       required: true,
+      trim: true,
     },
 
     eventDate: {
@@ -84,5 +92,11 @@ const eventSchema = new Schema<IEvent>(
     timestamps: true,
   }
 );
+
+eventSchema.index({
+  city: 1,
+  status: 1,
+  eventDate: 1,
+});
 
 export default mongoose.model<IEvent>("Event", eventSchema);

@@ -1,10 +1,50 @@
 import { Request, Response } from "express";
 import {
+  cancelPendingBookingService,
   createBookingService,
+  createPaymentBooking,
   getMyBookingsService,
   getOrganizerBookingsService,
+  verifyPaymentRazorpay,
 } from "../services/booking.service";
 import { parsePaginationQuery } from "../utils/pagination";
+import {
+  getAuthenticatedUserId,
+  RequestUserError,
+} from "../utils/requestUser";
+
+const sendBookingError = (
+  res: Response,
+  error: unknown,
+  fallbackMessage: string,
+  fallbackStatusCode: number
+) => {
+  if (error instanceof RequestUserError) {
+    res.status(error.statusCode).json({
+      success: false,
+      message: error.message,
+    });
+    return;
+  }
+
+  const err = error as Error;
+
+  res.status(fallbackStatusCode).json({
+    success: false,
+    message: err.message || fallbackMessage,
+  });
+};
+
+const getRouteParam = (
+  value: string | string[] | undefined,
+  label: string
+) => {
+  if (!value || Array.isArray(value)) {
+    throw new Error(`Invalid ${label}.`);
+  }
+
+  return value;
+};
 
 export const createBooking = async (
   req: Request,
@@ -19,27 +59,122 @@ export const createBooking = async (
       return;
     }
 
-    const { eventId, quantity } = req.body;
+    const { eventId, quantity, couponCode } = req.body;
+    const userId = getAuthenticatedUserId(req);
 
     const result = await createBookingService(
       eventId,
-      req.user._id.toString(),
-      Number(quantity)
+      userId,
+      Number(quantity),
+      typeof couponCode === "string" ? couponCode : undefined
     );
 
     res.status(201).json({
       success: true,
-      message: "Ticket booked successfully.",
+      message: "Booking created successfully.",
       booking: result.booking,
       event: result.event,
     });
   } catch (error) {
-    const err = error as Error;
+    sendBookingError(
+      res,
+      error,
+      "Failed to book tickets.",
+      400
+    );
+  }
+};
 
-    res.status(400).json({
-      success: false,
-      message: err.message || "Failed to book tickets.",
+export const cancelPendingBooking = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: "Please login to cancel this booking.",
+      });
+      return;
+    }
+
+    const result = await cancelPendingBookingService(
+      getRouteParam(req.params.id, "booking ID"),
+      getAuthenticatedUserId(req)
+    );
+
+    res.status(200).json(result);
+  } catch (error) {
+    sendBookingError(
+      res,
+      error,
+      "Failed to cancel booking.",
+      400
+    );
+  }
+};
+
+export const createRazorpayOrder = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: "Please login to continue payment.",
+      });
+      return;
+    }
+
+    const { bookingId } = req.body;
+
+    const result = await createPaymentBooking(
+      bookingId,
+      getAuthenticatedUserId(req)
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Razorpay order created successfully.",
+      ...result,
     });
+  } catch (error) {
+    sendBookingError(
+      res,
+      error,
+      "Failed to create Razorpay order.",
+      400
+    );
+  }
+};
+
+export const verifyRazorpayPayment = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: "Please login to verify payment.",
+      });
+      return;
+    }
+
+    const result = await verifyPaymentRazorpay(
+      getAuthenticatedUserId(req),
+      req.body
+    );
+
+    res.status(200).json(result);
+  } catch (error) {
+    sendBookingError(
+      res,
+      error,
+      "Payment verification failed.",
+      400
+    );
   }
 };
 
@@ -57,7 +192,7 @@ export const getMyBookings = async (
     }
 
     const result = await getMyBookingsService(
-      req.user._id.toString(),
+      getAuthenticatedUserId(req),
       parsePaginationQuery(req.query)
     );
 
@@ -67,12 +202,12 @@ export const getMyBookings = async (
       bookings: result.data,
     });
   } catch (error) {
-    const err = error as Error;
-
-    res.status(500).json({
-      success: false,
-      message: err.message || "Failed to fetch bookings.",
-    });
+    sendBookingError(
+      res,
+      error,
+      "Failed to fetch bookings.",
+      500
+    );
   }
 };
 
@@ -90,7 +225,7 @@ export const getOrganizerBookings = async (
     }
 
     const result = await getOrganizerBookingsService(
-      req.user._id.toString(),
+      getAuthenticatedUserId(req),
       req.user.role === "admin",
       parsePaginationQuery(req.query)
     );
@@ -101,11 +236,11 @@ export const getOrganizerBookings = async (
       bookings: result.data,
     });
   } catch (error) {
-    const err = error as Error;
-
-    res.status(500).json({
-      success: false,
-      message: err.message || "Failed to fetch organizer bookings.",
-    });
+    sendBookingError(
+      res,
+      error,
+      "Failed to fetch organizer bookings.",
+      500
+    );
   }
 };

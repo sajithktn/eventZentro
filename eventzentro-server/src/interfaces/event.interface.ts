@@ -1,9 +1,26 @@
 import { Document, Types } from "mongoose";
+import {
+  PromotionDiscountType,
+  PromotionMode,
+} from "./coupon.interface";
+
+export interface EventBestPromotion {
+  id: string;
+  name: string;
+  code?: string;
+  promotionMode: PromotionMode;
+  discountType: PromotionDiscountType;
+  discountValue: number;
+  displayText: string;
+  remainingOfferTickets?: number;
+}
 
 export interface IEvent extends Document {
   title: string;
   description: string;
   category: string;
+
+  city: string;
   venue: string;
 
   eventDate: Date;
@@ -21,6 +38,7 @@ export interface IEvent extends Document {
   status: "draft" | "published" | "cancelled";
 
   isFeatured: boolean;
+  bestPromotion?: EventBestPromotion | null;
 
   createdAt: Date;
   updatedAt: Date;

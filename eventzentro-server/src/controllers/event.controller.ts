@@ -1,11 +1,50 @@
 import { Request, Response } from "express";
 import {
   createEventService,
+  deleteEventService,
+  EventServiceError,
   getAllEventsService,
   getEventByIdService,
+  getEventLocationsService,
+  getOrganizerDashboardService,
+  getOrganizerEventByIdService,
   updateEventService,
 } from "../services/event.service";
+import {
+  getPublicPromotionsForEventService,
+} from "../services/coupon.service";
 import { parsePaginationQuery } from "../utils/pagination";
+import {
+  getAuthenticatedUserId,
+  RequestUserError,
+} from "../utils/requestUser";
+
+const sendEventError = (
+  res: Response,
+  error: unknown,
+  fallbackMessage: string,
+  fallbackStatusCode: number
+) => {
+  if (error instanceof RequestUserError) {
+    res.status(error.statusCode).json({
+      success: false,
+      message: error.message,
+    });
+    return;
+  }
+
+  const err = error as Error;
+
+  const statusCode =
+    error instanceof EventServiceError
+      ? error.statusCode
+      : fallbackStatusCode;
+
+  res.status(statusCode).json({
+    success: false,
+    message: err.message || fallbackMessage,
+  });
+};
 
 export const getEventById = async (
   req: Request,
@@ -29,12 +68,12 @@ export const getEventById = async (
       event,
     });
   } catch (error) {
-    const err = error as Error;
-
-    res.status(404).json({
-      success: false,
-      message: err.message || "Event not found.",
-    });
+    sendEventError(
+      res,
+      error,
+      "Event not found.",
+      404
+    );
   }
 };
 
@@ -53,7 +92,7 @@ export const createEvent = async (
 
     const result = await createEventService(
       req.body,
-      req.user._id.toString()
+      getAuthenticatedUserId(req)
     );
 
     res.status(201).json({
@@ -62,12 +101,12 @@ export const createEvent = async (
       event: result.event,
     });
   } catch (error) {
-    const err = error as Error;
-
-    res.status(500).json({
-      success: false,
-      message: err.message || "Failed to create event.",
-    });
+    sendEventError(
+      res,
+      error,
+      "Failed to create event.",
+      500
+    );
   }
 };
 
@@ -88,11 +127,13 @@ export const getAllEvents = async (
 
     const result = await getAllEventsService({
       query,
+
       organizerId:
         query.organizer === "me" &&
         req.user?.role !== "admin"
-          ? req.user?._id.toString()
+          ? getAuthenticatedUserId(req)
           : undefined,
+
       includeAllOrganizers:
         query.organizer === "me" &&
         req.user?.role === "admin",
@@ -104,11 +145,179 @@ export const getAllEvents = async (
       events: result.data,
     });
   } catch (error) {
+    sendEventError(
+      res,
+      error,
+      "Failed to fetch events.",
+      500
+    );
+  }
+};
+
+export const getOrganizerEvents = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: "Unauthorized user.",
+      });
+      return;
+    }
+
+    const result = await getAllEventsService({
+      query: parsePaginationQuery(req.query),
+      organizerId: getAuthenticatedUserId(req),
+    });
+
+    res.status(200).json({
+      ...result,
+      count: result.data.length,
+      events: result.data,
+    });
+  } catch (error) {
+    sendEventError(
+      res,
+      error,
+      "Failed to fetch organizer events.",
+      500
+    );
+  }
+};
+
+export const getOrganizerDashboard = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: "Unauthorized user.",
+      });
+      return;
+    }
+
+    const result = await getOrganizerDashboardService(
+      getAuthenticatedUserId(req)
+    );
+
+    res.status(200).json(result);
+  } catch (error) {
+    sendEventError(
+      res,
+      error,
+      "Failed to fetch organizer dashboard.",
+      500
+    );
+  }
+};
+
+export const getOrganizerEventById = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: "Unauthorized user.",
+      });
+      return;
+    }
+
+    const { id } = req.params;
+
+    if (!id || Array.isArray(id)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid event ID.",
+      });
+      return;
+    }
+
+    const event =
+      await getOrganizerEventByIdService(
+        id,
+        getAuthenticatedUserId(req),
+        req.user.role
+      );
+
+    res.status(200).json({
+      success: true,
+      event,
+    });
+  } catch (error) {
+    sendEventError(
+      res,
+      error,
+      "Failed to fetch event.",
+      500
+    );
+  }
+};
+
+export const getEventLocations = async (
+  _req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const locations =
+      await getEventLocationsService();
+
+    res.status(200).json({
+      success: true,
+      message:
+        "Event locations fetched successfully.",
+      count: locations.length,
+      locations,
+    });
+  } catch (error) {
     const err = error as Error;
 
     res.status(500).json({
       success: false,
-      message: err.message || "Failed to fetch events.",
+      message:
+        err.message ||
+        "Failed to fetch event locations.",
+    });
+  }
+};
+
+export const getEventPromotions = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const { eventId } = req.params;
+
+    if (!eventId || Array.isArray(eventId)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid event ID.",
+      });
+      return;
+    }
+
+    const promotions =
+      await getPublicPromotionsForEventService(eventId);
+
+    res.status(200).json({
+      success: true,
+      message: "Event promotions fetched successfully.",
+      count: promotions.length,
+      promotions,
+    });
+  } catch (error) {
+    const err = error as Error;
+
+    res.status(400).json({
+      success: false,
+      message:
+        err.message ||
+        "Failed to fetch event promotions.",
     });
   }
 };
@@ -138,7 +347,7 @@ export const updateEvent = async (
 
     const result = await updateEventService(
       id,
-      req.user._id.toString(),
+      getAuthenticatedUserId(req),
       req.user.role,
       req.body
     );
@@ -149,13 +358,51 @@ export const updateEvent = async (
       event: result.event,
     });
   } catch (error) {
-    const err = error as Error;
-    const statusCode =
-      err.message === "You can only edit your own events." ? 403 : 400;
+    sendEventError(
+      res,
+      error,
+      "Failed to update event.",
+      400
+    );
+  }
+};
 
-    res.status(statusCode).json({
-      success: false,
-      message: err.message || "Failed to update event.",
-    });
+export const deleteEvent = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({
+        success: false,
+        message: "Unauthorized user.",
+      });
+      return;
+    }
+
+    const { id } = req.params;
+
+    if (!id || Array.isArray(id)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid event ID.",
+      });
+      return;
+    }
+
+    const result = await deleteEventService(
+      id,
+      getAuthenticatedUserId(req),
+      req.user.role
+    );
+
+    res.status(200).json(result);
+  } catch (error) {
+    sendEventError(
+      res,
+      error,
+      "Failed to delete event.",
+      400
+    );
   }
 };

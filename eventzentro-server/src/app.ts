@@ -8,7 +8,10 @@ import "./config/passport";
 import authRoutes from "./routes/auth.routes";
 import eventRoutes from "./routes/event.routes";
 import bookingRoutes from "./routes/booking.routes";
+import couponRoutes from "./routes/coupon.routes";
 import adminRoutes from "./routes/admin.routes";
+import categoryRoutes from "./routes/category.routes";
+import organizerApplicationRoutes from "./routes/organizerApplication.routes";
 
 const app = express();
 
@@ -34,6 +37,15 @@ app.get("/", (_req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/events", eventRoutes);
 app.use("/api/bookings", bookingRoutes);
+app.use("/api/categories", categoryRoutes);
+app.use("/api/promotions", couponRoutes);
+app.use("/api/coupons", couponRoutes);
+
+app.use(
+  "/api/organizer-applications",
+  organizerApplicationRoutes
+);
+
 app.use("/api/admin", adminRoutes);
 
 export default app;

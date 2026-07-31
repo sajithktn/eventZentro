@@ -19,6 +19,12 @@ export const createEventSchema = z
       .trim()
       .min(2, "Category is required"),
 
+    city: z
+      .string()
+      .trim()
+      .min(2, "City is required")
+      .max(80, "City cannot exceed 80 characters"),
+
     venue: z
       .string()
       .trim()
@@ -60,11 +66,11 @@ export const createEventSchema = z
       .min(1, "At least one ticket is required"),
 
     bannerImage: z
-  .union([
-    z.string().url("Invalid image URL"),
-    z.literal(""),
-  ])
-  .optional(),
+      .union([
+        z.string().url("Invalid image URL"),
+        z.literal(""),
+      ])
+      .optional(),
   })
   .refine(
     (data) => data.endTime > data.startTime,

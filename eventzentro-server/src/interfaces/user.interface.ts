@@ -19,6 +19,14 @@ export interface IAddress {
   zipCode?: string;
 }
 
+export interface IUserSocialLinks {
+  website?: string;
+  instagram?: string;
+  facebook?: string;
+  linkedin?: string;
+  twitter?: string;
+}
+
 export interface IUser extends Document {
   _id: Types.ObjectId;
 
@@ -38,9 +46,20 @@ export interface IUser extends Document {
   bio?: string;
   address?: IAddress;
 
+  organizerName?: string;
+  companyName?: string;
+  organizerCategory?: string;
+  website?: string;
+  instagram?: string;
+  facebook?: string;
+  linkedin?: string;
+  twitter?: string;
+  socialLinks?: IUserSocialLinks;
+
   verificationOTP?: string;
   verificationOTPExpiry?: Date;
 
+  
   passwordResetToken?: string;
   passwordResetExpires?: Date;
   passwordChangedAt?: Date;

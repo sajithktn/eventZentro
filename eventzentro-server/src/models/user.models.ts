@@ -42,6 +42,100 @@ const userSchema = new Schema<IUser>(
     bio: {
       type: String,
       default: "",
+      maxlength: 1000,
+    },
+
+    organizerName: {
+      type: String,
+      trim: true,
+      default: "",
+      maxlength: 120,
+    },
+
+    companyName: {
+      type: String,
+      trim: true,
+      default: "",
+      maxlength: 120,
+    },
+
+    organizerCategory: {
+      type: String,
+      trim: true,
+      default: "",
+      maxlength: 80,
+    },
+
+    website: {
+      type: String,
+      trim: true,
+      default: "",
+      maxlength: 200,
+    },
+
+    instagram: {
+      type: String,
+      trim: true,
+      default: "",
+      maxlength: 200,
+    },
+
+    facebook: {
+      type: String,
+      trim: true,
+      default: "",
+      maxlength: 200,
+    },
+
+    linkedin: {
+      type: String,
+      trim: true,
+      default: "",
+      maxlength: 200,
+    },
+
+    twitter: {
+      type: String,
+      trim: true,
+      default: "",
+      maxlength: 200,
+    },
+
+    socialLinks: {
+      website: {
+        type: String,
+        trim: true,
+        default: "",
+        maxlength: 200,
+      },
+
+      instagram: {
+        type: String,
+        trim: true,
+        default: "",
+        maxlength: 200,
+      },
+
+      facebook: {
+        type: String,
+        trim: true,
+        default: "",
+        maxlength: 200,
+      },
+
+      linkedin: {
+        type: String,
+        trim: true,
+        default: "",
+        maxlength: 200,
+      },
+
+      twitter: {
+        type: String,
+        trim: true,
+        default: "",
+        maxlength: 200,
+      },
     },
 
     role: {
