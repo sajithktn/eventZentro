@@ -32,6 +32,12 @@ import {
   CreateCouponInput,
   UpdateCouponInput,
 } from "../validators/coupon.validators";
+import {
+  completePublishedEventIfEnded,
+} from "./eventLifecycle.service";
+import {
+  EVENT_ENDED_BOOKING_MESSAGE,
+} from "../utils/eventLifecycle";
 
 interface PromotionListOptions {
   organizerId: string;
@@ -410,6 +416,7 @@ const getPopulatedPromotion = async (
 };
 
 const ensureUniqueCouponCode = async (
+  eventId: string | Types.ObjectId,
   code: string | undefined,
   promotionId?: string | Types.ObjectId
 ) => {
@@ -417,10 +424,19 @@ const ensureUniqueCouponCode = async (
     return;
   }
 
+  const normalizedCode = normalizeCouponCode(code);
+
+  if (!normalizedCode) {
+    return;
+  }
+
   const duplicate = await Promotion.findOne({
-    code,
+    event: eventId,
+    code: normalizedCode,
     promotionMode: "coupon",
-    isDeleted: false,
+    isDeleted: {
+      $ne: true,
+    },
     ...(promotionId
       ? {
           _id: {
@@ -431,7 +447,9 @@ const ensureUniqueCouponCode = async (
   }).select("_id");
 
   if (duplicate) {
-    throw new Error("A promotion with this coupon code already exists.");
+    throw new Error(
+      "A promotion with this coupon code already exists for this event."
+    );
   }
 };
 
@@ -889,6 +907,13 @@ export const getPromotionQuoteService = async (
     throw new Error("Event not found.");
   }
 
+  if (
+    event.status === "completed" ||
+    (await completePublishedEventIfEnded(event))
+  ) {
+    throw new Error(EVENT_ENDED_BOOKING_MESSAGE);
+  }
+
   if (event.status !== "published") {
     throw new Error("This event is not available for booking.");
   }
@@ -1108,7 +1133,7 @@ export const createCouponService = async (
       ? normalizeCouponCode(data.code)
       : undefined;
 
-  await ensureUniqueCouponCode(normalizedCode);
+  await ensureUniqueCouponCode(event._id, normalizedCode);
 
   try {
     const promotion = await Promotion.create({
@@ -1150,7 +1175,7 @@ export const createCouponService = async (
   } catch (error) {
     if (isDuplicateKeyError(error)) {
       throw new Error(
-        "A promotion with this coupon code already exists."
+        "A promotion with this coupon code already exists for this event."
       );
     }
 
@@ -1171,6 +1196,8 @@ export const updateCouponService = async (
       role
     );
 
+  let shouldValidateCouponIdentity = false;
+
   if (data.eventId) {
     const event = await getEventForPromotionOrThrow(
       data.eventId,
@@ -1180,6 +1207,7 @@ export const updateCouponService = async (
 
     promotion.event = event._id as Types.ObjectId;
     promotion.organizer = event.organizer;
+    shouldValidateCouponIdentity = true;
   }
 
   if (data.name) {
@@ -1195,6 +1223,7 @@ export const updateCouponService = async (
 
   if (data.promotionMode) {
     promotion.promotionMode = data.promotionMode;
+    shouldValidateCouponIdentity = true;
   }
 
   if (data.promotionMode === "automatic") {
@@ -1207,12 +1236,24 @@ export const updateCouponService = async (
     data.code
   ) {
     const normalizedCode = normalizeCouponCode(data.code);
-    await ensureUniqueCouponCode(normalizedCode, promotion._id);
     promotion.code = normalizedCode;
+    shouldValidateCouponIdentity = true;
   }
 
   if (getPromotionMode(promotion) === "coupon" && !promotion.code) {
     throw new Error("Coupon code is required for coupon promotions.");
+  }
+
+  if (
+    getPromotionMode(promotion) === "coupon" &&
+    promotion.code &&
+    shouldValidateCouponIdentity
+  ) {
+    await ensureUniqueCouponCode(
+      promotion.event,
+      promotion.code,
+      promotion._id
+    );
   }
 
   if (data.discountType) {
@@ -1320,7 +1361,7 @@ export const updateCouponService = async (
   } catch (error) {
     if (isDuplicateKeyError(error)) {
       throw new Error(
-        "A promotion with this coupon code already exists."
+        "A promotion with this coupon code already exists for this event."
       );
     }
 

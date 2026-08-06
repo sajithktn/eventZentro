@@ -2,6 +2,15 @@ import mongoose, { Schema } from "mongoose";
 
 import { IPromotion } from "../interfaces/coupon.interface";
 
+type PromotionIndexDescription = {
+  name?: string;
+  key: Record<string, unknown>;
+  unique?: boolean;
+};
+
+const activeCouponCodeIndexName =
+  "unique_active_coupon_code_per_event";
+
 const couponSchema = new Schema<IPromotion>(
   {
     name: {
@@ -174,9 +183,11 @@ const couponSchema = new Schema<IPromotion>(
 
 couponSchema.index(
   {
+    event: 1,
     code: 1,
   },
   {
+    name: activeCouponCodeIndexName,
     unique: true,
     partialFilterExpression: {
       promotionMode: "coupon",
@@ -220,4 +231,96 @@ couponSchema.index({
   status: 1,
 });
 
-export default mongoose.model<IPromotion>("Coupon", couponSchema);
+const Promotion = mongoose.model<IPromotion>(
+  "Coupon",
+  couponSchema
+);
+
+const hasSingleAscendingKey = (
+  index: PromotionIndexDescription,
+  field: string
+) => {
+  const keyEntries = Object.entries(index.key);
+
+  return (
+    keyEntries.length === 1 &&
+    keyEntries[0][0] === field &&
+    keyEntries[0][1] === 1
+  );
+};
+
+const hasAscendingKeys = (
+  index: PromotionIndexDescription,
+  fields: string[]
+) => {
+  const keyEntries = Object.entries(index.key);
+
+  return (
+    keyEntries.length === fields.length &&
+    fields.every(
+      (field, indexPosition) =>
+        keyEntries[indexPosition][0] === field &&
+        keyEntries[indexPosition][1] === 1
+    )
+  );
+};
+
+const isObsoleteCouponCodeIndex = (
+  index: PromotionIndexDescription
+) => {
+  if (
+    !index.unique ||
+    index.name === activeCouponCodeIndexName
+  ) {
+    return false;
+  }
+
+  return (
+    hasSingleAscendingKey(index, "code") ||
+    hasSingleAscendingKey(index, "couponCode") ||
+    hasAscendingKeys(index, ["event", "code"]) ||
+    hasAscendingKeys(index, ["event", "couponCode"])
+  );
+};
+
+export const ensurePromotionCouponIndexes = async () => {
+  const legacyPromotionUpdate =
+    await Promotion.updateMany(
+      {
+        isDeleted: {
+          $exists: false,
+        },
+      },
+      {
+        $set: {
+          isDeleted: false,
+        },
+      }
+    );
+
+  if (legacyPromotionUpdate.modifiedCount > 0) {
+    console.log(
+      `Marked ${legacyPromotionUpdate.modifiedCount} legacy promotions as non-deleted.`
+    );
+  }
+
+  const indexes =
+    (await Promotion.collection.indexes()) as PromotionIndexDescription[];
+
+  const obsoleteIndexes = indexes.filter(
+    isObsoleteCouponCodeIndex
+  );
+
+  for (const index of obsoleteIndexes) {
+    if (index.name) {
+      await Promotion.collection.dropIndex(index.name);
+      console.log(
+        `Removed obsolete promotion coupon-code index: ${index.name}`
+      );
+    }
+  }
+
+  await Promotion.createIndexes();
+};
+
+export default Promotion;

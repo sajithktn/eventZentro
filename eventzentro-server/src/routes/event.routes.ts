@@ -11,6 +11,9 @@ import {
   getOrganizerEvents,
   updateEvent,
 } from "../controllers/event.controller";
+import {
+  getPublicFeaturedEvents,
+} from "../controllers/featuredEvent.controller";
 import validate from "../middleware/validate.middleware";
 import { createEventSchema } from "../validators/event.validators";
 import {
@@ -24,6 +27,8 @@ const router = Router();
 router.get("/", optionalAuth, getAllEvents);
 
 router.get("/locations", getEventLocations);
+
+router.get("/featured", getPublicFeaturedEvents);
 
 router.get(
   "/organizer/dashboard",

@@ -87,7 +87,25 @@ export const createOrganizerApplicationSchema =
     profileImage: optionalUrlSchema("Profile image"),
   });
 
+export const rejectOrganizerApplicationSchema =
+  z.object({
+    rejectionReason: z
+      .string()
+      .trim()
+      .max(
+        1000,
+        "Rejection reason cannot exceed 1000 characters"
+      )
+      .optional()
+      .or(z.literal("").transform(() => undefined)),
+  });
+
 export type CreateOrganizerApplicationInput =
   z.infer<
     typeof createOrganizerApplicationSchema
+  >;
+
+export type RejectOrganizerApplicationInput =
+  z.infer<
+    typeof rejectOrganizerApplicationSchema
   >;

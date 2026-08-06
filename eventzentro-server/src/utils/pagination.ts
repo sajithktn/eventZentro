@@ -4,7 +4,7 @@ import {
 } from "../interfaces/pagination.interface";
 
 const DEFAULT_PAGE = 1;
-const DEFAULT_LIMIT = 10;
+const DEFAULT_LIMIT = 12;
 const MAX_LIMIT = 100;
 
 export interface ParsedPaginationQuery

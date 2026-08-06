@@ -71,6 +71,12 @@ const eventSchema = new Schema<IEvent>(
       default: "",
     },
 
+    bannerImagePublicId: {
+    type: String,
+    trim: true,
+    default: "",
+    },
+
     organizer: {
       type: Schema.Types.ObjectId,
       ref: "User",
@@ -79,7 +85,7 @@ const eventSchema = new Schema<IEvent>(
 
     status: {
       type: String,
-      enum: ["draft", "published", "cancelled"],
+      enum: ["draft", "published", "cancelled", "completed"],
       default: "draft",
     },
 

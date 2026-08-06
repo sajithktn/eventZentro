@@ -115,28 +115,16 @@ export const getAllEvents = async (
   res: Response
 ): Promise<void> => {
   try {
-    const query = parsePaginationQuery(req.query);
+    const parsedQuery = parsePaginationQuery(req.query);
 
-    if (query.organizer === "me" && !req.user) {
-      res.status(401).json({
-        success: false,
-        message: "Unauthorized user.",
-      });
-      return;
-    }
+    const query = {
+      ...parsedQuery,
+      status: "published",
+    };
 
     const result = await getAllEventsService({
       query,
-
-      organizerId:
-        query.organizer === "me" &&
-        req.user?.role !== "admin"
-          ? getAuthenticatedUserId(req)
-          : undefined,
-
-      includeAllOrganizers:
-        query.organizer === "me" &&
-        req.user?.role === "admin",
+      onlyUpcoming: true,
     });
 
     res.status(200).json({

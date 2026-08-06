@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { QueryFilter, Types } from "mongoose";
 import { PaginatedApiResponse } from "../interfaces/pagination.interface";
 import { IBooking } from "../interfaces/booking.interface";
+import { IEvent } from "../interfaces/event.interface";
 import Booking from "../models/booking.model";
 import Event from "../models/event.model";
 import User from "../models/user.models";
@@ -22,6 +23,12 @@ import {
 import {
   getActiveAdminCommissionPercentageService,
 } from "./commission.service";
+import {
+  completePublishedEventIfEnded,
+} from "./eventLifecycle.service";
+import {
+  EVENT_ENDED_BOOKING_MESSAGE,
+} from "../utils/eventLifecycle";
 
 type SortDirection = 1 | -1;
 type BookingSort = Record<string, SortDirection>;
@@ -198,6 +205,36 @@ const getAppliedPromotionId = (
   booking.appliedPromotion?.promotionId ||
   undefined;
 
+const getBookableEventOrThrow = async (
+  eventId: string | Types.ObjectId,
+  ticketCount: number
+): Promise<IEvent> => {
+  const event = await Event.findById(eventId);
+
+  if (!event) {
+    throw new Error("Event not found.");
+  }
+
+  if (
+    event.status === "completed" ||
+    (await completePublishedEventIfEnded(event))
+  ) {
+    throw new Error(EVENT_ENDED_BOOKING_MESSAGE);
+  }
+
+  if (event.status !== "published") {
+    throw new Error(
+      "This event is not available for booking."
+    );
+  }
+
+  if (event.availableTickets < ticketCount) {
+    throw new Error("Not enough tickets available.");
+  }
+
+  return event;
+};
+
 type PromotionQuote = Awaited<
   ReturnType<
     typeof getPromotionQuoteService
@@ -318,6 +355,12 @@ export const createBookingService =
       );
     }
 
+    const event =
+      await getBookableEventOrThrow(
+        eventId,
+        quantity
+      );
+
     const quote =
       await getPromotionQuoteService({
         eventId,
@@ -325,15 +368,6 @@ export const createBookingService =
         ticketCount: quantity,
         couponCode,
       });
-
-    const event =
-      await Event.findById(eventId);
-
-    if (!event) {
-      throw new Error(
-        "Event not found."
-      );
-    }
 
     const isFreeBooking =
       quote.finalAmount === 0;
@@ -388,6 +422,11 @@ export const createBookingService =
         isFreeBooking &&
         appliedPromotionId
       ) {
+        await getBookableEventOrThrow(
+          event._id,
+          quantity
+        );
+
         const reservation =
           await reservePromotionForBooking(
             {
@@ -413,10 +452,16 @@ export const createBookingService =
       }
 
       if (isFreeBooking) {
+        await getBookableEventOrThrow(
+          event._id,
+          quantity
+        );
+
         const updatedEvent =
           await Event.findOneAndUpdate(
             {
               _id: event._id,
+              status: "published",
               availableTickets: {
                 $gte: quantity,
               },
@@ -433,6 +478,11 @@ export const createBookingService =
           );
 
         if (!updatedEvent) {
+          await getBookableEventOrThrow(
+            event._id,
+            quantity
+          );
+
           throw new Error(
             "Not enough tickets available."
           );
@@ -544,39 +594,16 @@ export const createPaymentBooking =
       );
     }
 
-    const event =
-      await Event.findById(
-        booking.event
-      );
-
-    if (!event) {
-      throw new Error(
-        "Event not found."
-      );
-    }
-
-    if (
-      event.status !==
-      "published"
-    ) {
-      throw new Error(
-        "This event is not available for booking."
-      );
-    }
-
     const ticketCount =
       getBookingTicketCount(
         booking
       );
 
-    if (
-      event.availableTickets <
-      ticketCount
-    ) {
-      throw new Error(
-        "Not enough tickets available."
+    const event =
+      await getBookableEventOrThrow(
+        booking.event,
+        ticketCount
       );
-    }
 
     const quote =
       await getPromotionQuoteService({
@@ -651,6 +678,7 @@ export const createPaymentBooking =
           await Event.findOneAndUpdate(
             {
               _id: event._id,
+              status: "published",
               availableTickets: {
                 $gte:
                   ticketCount,
@@ -668,6 +696,11 @@ export const createPaymentBooking =
           );
 
         if (!updatedEvent) {
+          await getBookableEventOrThrow(
+            event._id,
+            ticketCount
+          );
+
           throw new Error(
             "Not enough tickets available."
           );
@@ -761,6 +794,11 @@ export const createPaymentBooking =
       if (
         appliedPromotionId
       ) {
+        await getBookableEventOrThrow(
+          event._id,
+          ticketCount
+        );
+
         const reservation =
           await reservePromotionForBooking(
             {
@@ -833,6 +871,11 @@ export const createPaymentBooking =
       );
 
     if (appliedPromotionId) {
+      await getBookableEventOrThrow(
+        event._id,
+        ticketCount
+      );
+
       const reservation =
         await reservePromotionForBooking(
           {
@@ -863,6 +906,11 @@ export const createPaymentBooking =
       quote.finalAmount;
 
     try {
+      await getBookableEventOrThrow(
+        event._id,
+        ticketCount
+      );
+
       const order =
         await razorpay.orders.create(
           {
@@ -1057,6 +1105,16 @@ export const verifyPaymentRazorpay =
       );
     }
 
+    const requestedTicketCount =
+      getBookingTicketCount(
+        booking
+      );
+
+    await getBookableEventOrThrow(
+      booking.event,
+      requestedTicketCount
+    );
+
     const keySecret =
       process.env
         .RAZORPAY_KEY_SECRET;
@@ -1200,6 +1258,11 @@ export const verifyPaymentRazorpay =
         lockedBooking
       );
 
+    await getBookableEventOrThrow(
+      lockedBooking.event,
+      ticketCount
+    );
+
     const revenue =
       await calculateCommission(
         lockedBooking.finalAmount ??
@@ -1269,6 +1332,7 @@ export const verifyPaymentRazorpay =
           {
             _id:
               lockedBooking.event,
+            status: "published",
             availableTickets: {
               $gte:
                 ticketCount,
@@ -1286,6 +1350,11 @@ export const verifyPaymentRazorpay =
         );
 
       if (!updatedEvent) {
+        await getBookableEventOrThrow(
+          lockedBooking.event,
+          ticketCount
+        );
+
         throw new Error(
           "Not enough tickets are available."
         );

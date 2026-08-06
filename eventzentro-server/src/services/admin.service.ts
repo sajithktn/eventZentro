@@ -5,6 +5,7 @@ import {
 } from "mongoose";
 
 import Booking from "../models/booking.model";
+import FeaturedEventRequest from "../models/featuredEventRequest.model";
 import Promotion from "../models/coupon.model";
 import Event from "../models/event.model";
 import User from "../models/user.models";
@@ -23,6 +24,21 @@ import {
   releasePromotionReservationByBooking,
   restoreRedeemedPromotionReservation,
 } from "./coupon.service";
+import {
+  getActiveAdminCommissionPercentageService,
+} from "./commission.service";
+import {
+  deleteImageFromCloudinary,
+} from "./cloudinary.service";
+import {
+  deactivateFeaturedRequestsForEvent,
+} from "./featuredEvent.service";
+import {
+  completePublishedEventIfEnded,
+} from "./eventLifecycle.service";
+import {
+  EVENT_ENDED_BOOKING_MESSAGE,
+} from "../utils/eventLifecycle";
 import Category from "../models/category.model";
 
 interface RevenueResult {
@@ -30,6 +46,11 @@ interface RevenueResult {
   totalRevenue: number;
   totalAdminCommission: number;
   totalOrganizerEarnings: number;
+}
+
+interface FeaturedEventRevenueResult {
+  _id: null;
+  totalFeaturedEventRevenue: number;
 }
 
 interface BookingSummaryResult {
@@ -144,6 +165,7 @@ const eventStatuses: IEvent["status"][] = [
   "draft",
   "published",
   "cancelled",
+  "completed",
 ];
 
 const bookingStatuses: IBooking["status"][] = [
@@ -177,7 +199,8 @@ const isEventStatus = (
 ): status is IEvent["status"] =>
   status === "draft" ||
   status === "published" ||
-  status === "cancelled";
+  status === "cancelled" ||
+  status === "completed";
 
 const isBookingStatus = (
   status: string
@@ -225,6 +248,33 @@ const getObjectIdOrThrow = (
 const getBookingTicketCount = (
   booking: IBooking
 ) => booking.ticketCount || booking.quantity;
+
+const roundMoney = (amount: number) =>
+  Math.round(
+    (amount + Number.EPSILON) * 100
+  ) / 100;
+
+const calculateCommissionSnapshot =
+  async (amount: number) => {
+    const amountPaid = roundMoney(amount);
+    const adminCommissionRate =
+      await getActiveAdminCommissionPercentageService();
+
+    const adminCommissionAmount = roundMoney(
+      amountPaid *
+        (adminCommissionRate / 100)
+    );
+
+    return {
+      amountPaid,
+      adminCommissionRate,
+      adminCommissionAmount,
+      organizerEarnings: roundMoney(
+        amountPaid - adminCommissionAmount
+      ),
+      commissionCalculatedAt: new Date(),
+    };
+  };
 
 const eventPopulate = {
   path: "organizer",
@@ -393,6 +443,7 @@ export const getAdminDashboardService =
       totalEvents,
       totalBookings,
       revenueResult,
+      featuredEventRevenueResult,
     ] = await Promise.all([
       User.countDocuments({
         isDeleted: false,
@@ -419,20 +470,101 @@ export const getAdminDashboardService =
             _id: null,
 
             totalRevenue: {
-              $sum: "$totalAmount",
+              $sum: {
+                $ifNull: [
+                  "$amountPaid",
+                  0,
+                ],
+              },
             },
 
             totalAdminCommission: {
-              $sum: "$adminCommissionAmount",
+              $sum: {
+                $ifNull: [
+                  "$adminCommissionAmount",
+                  0,
+                ],
+              },
             },
 
             totalOrganizerEarnings: {
-              $sum: "$organizerEarnings",
+              $sum: {
+                $cond: [
+                  {
+                    $gt: [
+                      {
+                        $ifNull: [
+                          "$organizerEarnings",
+                          0,
+                        ],
+                      },
+                      0,
+                    ],
+                  },
+                  "$organizerEarnings",
+                  {
+                    $max: [
+                      {
+                        $subtract: [
+                          {
+                            $ifNull: [
+                              "$amountPaid",
+                              0,
+                            ],
+                          },
+                          {
+                            $ifNull: [
+                              "$adminCommissionAmount",
+                              0,
+                            ],
+                          },
+                        ],
+                      },
+                      0,
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        },
+      ]),
+
+      FeaturedEventRequest.aggregate<FeaturedEventRevenueResult>([
+        {
+          $match: {
+            paymentStatus: "paid",
+            status: {
+              $in: ["approved", "paid"],
+            },
+            promotionFee: {
+              $gt: 0,
+            },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalFeaturedEventRevenue: {
+              $sum: {
+                $ifNull: [
+                  "$promotionFee",
+                  0,
+                ],
+              },
             },
           },
         },
       ]),
     ]);
+
+    const totalAdminCommission = roundMoney(
+      revenueResult[0]?.totalAdminCommission || 0
+    );
+    const featuredEventRevenue = roundMoney(
+      featuredEventRevenueResult[0]
+        ?.totalFeaturedEventRevenue || 0
+    );
 
     return {
       totalUsers,
@@ -441,13 +573,23 @@ export const getAdminDashboardService =
       totalBookings,
 
       totalRevenue:
-        revenueResult[0]?.totalRevenue || 0,
+        roundMoney(
+          revenueResult[0]?.totalRevenue || 0
+        ),
 
-      totalAdminCommission:
-        revenueResult[0]?.totalAdminCommission || 0,
+      totalAdminCommission,
 
       totalOrganizerEarnings:
-        revenueResult[0]?.totalOrganizerEarnings || 0,
+        roundMoney(
+          revenueResult[0]?.totalOrganizerEarnings ||
+            0
+        ),
+
+      featuredEventRevenue,
+
+      totalPlatformEarnings: roundMoney(
+        totalAdminCommission + featuredEventRevenue
+      ),
     };
   };
 
@@ -1264,6 +1406,15 @@ export const updateAdminEventStatusService =
 
     await event.save();
 
+    if (event.status !== "published") {
+      await deactivateFeaturedRequestsForEvent(
+        event._id,
+        event.status === "completed"
+          ? "expired"
+          : "cancelled"
+      );
+    }
+
     return getPopulatedAdminEvent(
       event._id
     );
@@ -1351,7 +1502,28 @@ export const deleteAdminEventService =
       }
     );
 
+    await deactivateFeaturedRequestsForEvent(
+      eventObjectId,
+      "cancelled"
+    );
+
+    const bannerImagePublicId =
+      event.bannerImagePublicId || "";
+
     await event.deleteOne();
+
+    if (bannerImagePublicId) {
+      try {
+        await deleteImageFromCloudinary(
+          bannerImagePublicId
+        );
+      } catch (error) {
+        console.error(
+          "Failed to delete event banner:",
+          error
+        );
+      }
+    }
 
     return {
       success: true,
@@ -1571,6 +1743,28 @@ const confirmAdminBooking = async (
     );
   }
 
+  if (
+    event.status === "completed" ||
+    (await completePublishedEventIfEnded(
+      event
+    ))
+  ) {
+    throw new AdminServiceError(
+      EVENT_ENDED_BOOKING_MESSAGE,
+      409
+    );
+  }
+
+  if (
+    event.status !==
+    "published"
+  ) {
+    throw new AdminServiceError(
+      "This event is not available for booking.",
+      409
+    );
+  }
+
   const ticketCount =
     getBookingTicketCount(
       booking
@@ -1623,9 +1817,20 @@ const confirmAdminBooking = async (
     booking.status =
       "confirmed";
 
-    booking.amountPaid =
-      booking.finalAmount ??
-      booking.totalAmount;
+    if (!booking.commissionCalculatedAt) {
+      Object.assign(
+        booking,
+        await calculateCommissionSnapshot(
+          booking.finalAmount ??
+            booking.totalAmount
+        )
+      );
+    } else {
+      booking.amountPaid =
+        booking.amountPaid ||
+        booking.finalAmount ||
+        booking.totalAmount;
+    }
 
     booking.paidAt =
       booking.paidAt ||
@@ -1941,7 +2146,7 @@ export const deleteAdminPromotionService =
 
         return {
           ...category.toObject(),
-          eventsCount,
+          eventCount: eventsCount,
         };
       })
     );
@@ -2097,7 +2302,7 @@ export const updateAdminCategoryService = async (
 
   return {
     ...category.toObject(),
-    eventsCount,
+    eventCount: eventsCount,
   };
 };
 
@@ -2143,7 +2348,7 @@ export const updateAdminCategoryStatusService =
 
     return {
       ...category.toObject(),
-      eventsCount,
+      eventCount: eventsCount,
     };
   };
 

@@ -21,11 +21,26 @@ import {
   ParsedPaginationQuery,
 } from "../utils/pagination";
 import { CreateEventInput } from "../validators/event.validators";
+import {
+  deleteImageFromCloudinary,
+} from "./cloudinary.service";
+import {
+  deactivateFeaturedRequestsForEvent,
+} from "./featuredEvent.service";
+import {
+  completePublishedEventIfEnded,
+} from "./eventLifecycle.service";
+import {
+  getStartOfDay,
+  hasEventEnded,
+} from "../utils/eventLifecycle";
+
 
 interface GetAllEventsServiceOptions {
   query: ParsedPaginationQuery;
   organizerId?: string;
   includeAllOrganizers?: boolean;
+  onlyUpcoming?: boolean;
 }
 
 type EventResponse = IEvent & {
@@ -55,6 +70,7 @@ const eventStatuses: IEvent["status"][] = [
   "draft",
   "published",
   "cancelled",
+  "completed",
 ];
 
 const getEventSort = (sort?: string): EventSort => {
@@ -356,6 +372,7 @@ export const createEventService = async (
 ) => {
   const categoryName =
     await getActiveCategoryNameOrThrow(data.category);
+  const eventDate = new Date(data.eventDate);
 
   const event = await Event.create({
     title: data.title,
@@ -365,7 +382,7 @@ export const createEventService = async (
     city: data.city,
     venue: data.venue,
 
-    eventDate: new Date(data.eventDate),
+    eventDate,
 
     startTime: data.startTime,
     endTime: data.endTime,
@@ -375,9 +392,13 @@ export const createEventService = async (
     availableTickets: data.totalTickets,
 
     bannerImage: data.bannerImage || "",
+    bannerImagePublicId:
+      data.bannerImagePublicId || "",
 
     organizer: organizerId,
-    status: "published",
+    status: hasEventEnded(eventDate, data.endTime)
+      ? "completed"
+      : "published",
   });
 
   const populatedEvent = await Event.findById(
@@ -404,6 +425,51 @@ export const getAllEventsService = async (
     options?.organizerId,
     options?.includeAllOrganizers
   );
+
+  if (options?.onlyUpcoming) {
+    const now = new Date();
+
+    addFilterCondition(filter, {
+      status: "published",
+      eventDate: {
+        $gte: getStartOfDay(now),
+      },
+    });
+
+    const matchingEvents = await Event.find(filter)
+      .populate(
+        "organizer",
+        "firstName lastName email profileImage"
+      )
+      .sort(getEventSort(query.sort));
+
+    const upcomingEvents = matchingEvents.filter(
+      (event) =>
+        !hasEventEnded(
+          event.eventDate,
+          event.endTime,
+          now
+        )
+    );
+
+    const events = upcomingEvents.slice(
+      query.skip,
+      query.skip + query.limit
+    );
+
+    const eventData = await withBestPromotions(events);
+
+    return {
+      success: true,
+      message: "Events fetched successfully.",
+      data: eventData,
+      pagination: buildPaginationMetadata(
+        query.page,
+        query.limit,
+        upcomingEvents.length
+      ),
+    };
+  }
 
   const [events, totalItems] = await Promise.all([
     Event.find(filter)
@@ -433,8 +499,13 @@ export const getAllEventsService = async (
 };
 
 export const getEventLocationsService = async () => {
+  const now = new Date();
+
   const events = await Event.find({
     status: "published",
+    eventDate: {
+      $gte: getStartOfDay(now),
+    },
     $or: [
       {
         city: {
@@ -451,11 +522,21 @@ export const getEventLocationsService = async () => {
         },
       },
     ],
-  }).select("city venue");
+  }).select("city venue eventDate endTime");
 
   const locationMap = new Map<string, string>();
 
   events.forEach((event) => {
+    if (
+      hasEventEnded(
+        event.eventDate,
+        event.endTime,
+        now
+      )
+    ) {
+      return;
+    }
+
     const location =
       getCleanLocationString(event.city) ||
       getCleanLocationString(event.venue);
@@ -492,6 +573,8 @@ export const getEventByIdService = async (
       404
     );
   }
+
+  await completePublishedEventIfEnded(event);
 
   const [eventData] =
     await withBestPromotions([event]);
@@ -531,6 +614,8 @@ export const getOrganizerEventByIdService = async (
       403
     );
   }
+
+  await completePublishedEventIfEnded(event);
 
   const [eventData] =
     await withBestPromotions([event]);
@@ -749,6 +834,7 @@ export const getOrganizerDashboardService = async (
       draft: 0,
       published: 0,
       cancelled: 0,
+      completed: 0,
     }
   );
 
@@ -769,6 +855,7 @@ export const getOrganizerDashboardService = async (
       publishedEvents: statusMap.published,
       draftEvents: statusMap.draft,
       cancelledEvents: statusMap.cancelled,
+      completedEvents: statusMap.completed,
       totalTicketsSold: stats.totalTicketsSold,
       totalBookings: stats.totalBookings,
       totalRevenue: stats.totalGrossRevenue,
@@ -861,9 +948,57 @@ export const updateEventService = async (
   event.availableTickets =
     data.totalTickets - soldTickets;
 
-  event.bannerImage = data.bannerImage || "";
+  if (
+    event.status === "published" &&
+    hasEventEnded(
+      event.eventDate,
+      event.endTime
+    )
+  ) {
+    event.status = "completed";
+  }
+
+  const previousBannerPublicId =
+    event.bannerImagePublicId || "";
+
+  const hasBannerImage =
+    Object.prototype.hasOwnProperty.call(
+      data,
+      "bannerImage"
+    );
+
+  const hasBannerImagePublicId =
+    Object.prototype.hasOwnProperty.call(
+      data,
+      "bannerImagePublicId"
+    );
+
+  const nextBannerImage = hasBannerImage
+    ? data.bannerImage?.trim() || ""
+    : event.bannerImage || "";
+
+  const nextBannerImagePublicId =
+    hasBannerImagePublicId
+      ? data.bannerImagePublicId?.trim() || ""
+      : event.bannerImagePublicId || "";
+
+  if (hasBannerImage) {
+    event.bannerImage = nextBannerImage;
+  }
+
+  if (hasBannerImagePublicId) {
+    event.bannerImagePublicId =
+      nextBannerImagePublicId;
+  }
 
   await event.save();
+
+  if (event.status === "completed") {
+    await deactivateFeaturedRequestsForEvent(
+      event._id,
+      "expired"
+    );
+  }
 
   const updatedEvent = await Event.findById(
     event._id
@@ -871,6 +1006,25 @@ export const updateEventService = async (
     "organizer",
     "firstName lastName email profileImage"
   );
+
+  if (
+    previousBannerPublicId &&
+    hasBannerImage &&
+    hasBannerImagePublicId &&
+    previousBannerPublicId !==
+      nextBannerImagePublicId
+  ) {
+    try {
+      await deleteImageFromCloudinary(
+        previousBannerPublicId
+      );
+    } catch (error) {
+      console.error(
+        "Failed to delete previous event banner:",
+        error
+      );
+    }
+  }
 
   return {
     message: "Event updated successfully.",
@@ -936,7 +1090,28 @@ export const deleteEventService = async (
     }
   );
 
+  await deactivateFeaturedRequestsForEvent(
+    eventObjectId,
+    "cancelled"
+  );
+
+  const bannerImagePublicId =
+    event.bannerImagePublicId || "";
+
   await event.deleteOne();
+
+  if (bannerImagePublicId) {
+    try {
+      await deleteImageFromCloudinary(
+        bannerImagePublicId
+      );
+    } catch (error) {
+      console.error(
+        "Failed to delete event banner:",
+        error
+      );
+    }
+  }
 
   return {
     success: true,

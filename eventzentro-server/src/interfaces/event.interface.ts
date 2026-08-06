@@ -32,10 +32,15 @@ export interface IEvent extends Document {
   availableTickets: number;
 
   bannerImage?: string;
+  bannerImagePublicId?: string;
 
   organizer: Types.ObjectId;
 
-  status: "draft" | "published" | "cancelled";
+  status:
+    | "draft"
+    | "published"
+    | "cancelled"
+    | "completed";
 
   isFeatured: boolean;
   bestPromotion?: EventBestPromotion | null;

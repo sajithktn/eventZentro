@@ -71,6 +71,15 @@ export const createEventSchema = z
         z.literal(""),
       ])
       .optional(),
+
+      bannerImagePublicId: z
+  .string()
+  .trim()
+  .max(
+    255,
+    "Image public ID is too long"
+  )
+  .optional(),
   })
   .refine(
     (data) => data.endTime > data.startTime,
@@ -79,6 +88,8 @@ export const createEventSchema = z
       path: ["endTime"],
     }
   );
+
+  
 
 export type CreateEventInput = z.infer<
   typeof createEventSchema
