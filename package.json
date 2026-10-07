@@ -1,4 +1,13 @@
 {
+  "name": "eventzentro",
+  "private": true,
+  "scripts": {
+    "dev:api": "npm run dev --prefix api",
+    "dev:web": "npm run dev --prefix web",
+    "build:api": "npm run build --prefix api",
+    "build:web": "npm run build --prefix web",
+    "lint:web": "npm run lint --prefix web"
+  },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
     "@reduxjs/toolkit": "^2.12.0",
