@@ -120,7 +120,7 @@ export function HomeEventsSection({ state }: HomeEventsSectionProps) {
             {featureCards.map(({ icon: Icon, title, description, color }) => (
               <div
                 key={title}
-                className="group rounded-[30px] border border-black/5 bg-white p-8 transition duration-300 hover:-translate-y-2 hover:shadow-[0_25px_60px_rgba(31,20,47,0.12)]"
+                className="group rounded-[30px] border border-black/5 bg-white p-8 transition-all duration-300 hover:-translate-y-2 hover:border-pink-500/20 hover:shadow-[0_25px_60px_rgba(31,20,47,0.14)]"
               >
                 <div
                   className={`flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br ${color} text-white shadow-xl transition duration-500 group-hover:rotate-[10deg]`}
@@ -139,8 +139,8 @@ export function HomeEventsSection({ state }: HomeEventsSectionProps) {
 
       <section className="bg-[#f7f5fa] px-6 pb-24 text-[#14111a]">
         <div className="relative mx-auto max-w-7xl overflow-hidden rounded-[42px] bg-[#15101f] px-8 py-14 text-white sm:px-12 lg:px-16 lg:py-20">
-          <div className="absolute -right-24 -top-24 h-80 w-80 rounded-full bg-pink-500/25 blur-[80px]" />
-          <div className="absolute -bottom-32 left-1/3 h-80 w-80 rounded-full bg-purple-600/25 blur-[100px]" />
+          <div className="hero-orb-two absolute -right-24 -top-24 h-80 w-80 rounded-full bg-pink-500/25 blur-[80px]" />
+          <div className="hero-orb-one absolute -bottom-32 left-1/3 h-80 w-80 rounded-full bg-purple-600/25 blur-[100px]" />
           <div className="absolute right-10 top-10 hidden rotate-12 text-[130px] font-black leading-none text-white/[0.03] lg:block">
             CREATE
           </div>

@@ -26,12 +26,12 @@ export function HomeHero({ state }: HomeHeroProps) {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,#5b21b6_0%,transparent_36%),radial-gradient(circle_at_80%_20%,#be123c_0%,transparent_30%),linear-gradient(135deg,#08070d_0%,#110d1e_48%,#08070d_100%)]" />
       <div className="hero-orb-one absolute -left-32 top-20 h-96 w-96 rounded-full bg-purple-600/30 blur-[100px]" />
       <div className="hero-orb-two absolute right-0 top-10 h-[420px] w-[420px] rounded-full bg-pink-500/25 blur-[120px]" />
-      <div className="absolute bottom-0 left-1/2 h-72 w-72 rounded-full bg-orange-500/15 blur-[110px]" />
+      <div className="hero-orb-three absolute bottom-0 left-1/2 h-72 w-72 rounded-full bg-orange-500/15 blur-[110px]" />
       <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(rgba(255,255,255,.4)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.4)_1px,transparent_1px)] [background-size:70px_70px]" />
 
       <div className="relative mx-auto grid min-h-[780px] max-w-7xl items-center gap-16 px-6 py-20 lg:grid-cols-[1.05fr_0.95fr]">
         <div className="relative z-10">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.08] px-4 py-2 backdrop-blur-xl">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.08] px-4 py-2 backdrop-blur-xl transition-all duration-300 hover:border-white/30 hover:bg-white/[0.12]">
             <span className="relative flex h-2.5 w-2.5">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-pink-400 opacity-75" />
               <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-pink-500" />
@@ -43,7 +43,7 @@ export function HomeHero({ state }: HomeHeroProps) {
 
           <h1 className="mt-7 max-w-3xl text-4xl font-black leading-[1.05] tracking-[-0.04em] sm:text-6xl sm:leading-[0.95] lg:text-[76px]">
             Find moments
-            <span className="block bg-gradient-to-r from-pink-400 via-orange-300 to-yellow-300 bg-clip-text text-transparent">
+            <span className="block animate-gradient bg-gradient-to-r from-pink-400 via-orange-300 to-yellow-300 bg-clip-text text-transparent [background-size:200%_auto]">
               worth remembering.
             </span>
           </h1>
@@ -53,9 +53,9 @@ export function HomeHero({ state }: HomeHeroProps) {
             experiences happening near you.
           </p>
 
-          <div className="mt-9 max-w-2xl rounded-2xl border border-white/15 bg-white/[0.08] p-1.5 shadow-2xl backdrop-blur-2xl sm:rounded-[26px] sm:p-2">
+          <div className="mt-9 max-w-2xl rounded-2xl border border-white/15 bg-white/[0.08] p-1.5 shadow-2xl backdrop-blur-2xl transition-all duration-300 focus-within:border-pink-500/50 focus-within:ring-2 focus-within:ring-pink-500/30 focus-within:shadow-[0_0_40px_rgba(244,63,94,0.25)] sm:rounded-[26px] sm:p-2">
             <div className="flex flex-col gap-2 sm:flex-row">
-              <div className="flex flex-1 items-center gap-3 rounded-xl bg-black/20 px-4 sm:rounded-[20px] sm:px-5">
+              <div className="flex flex-1 items-center gap-3 rounded-xl bg-black/20 px-4 transition-colors duration-200 focus-within:bg-black/35 sm:rounded-[20px] sm:px-5">
                 <Search size={19} className="shrink-0 text-pink-400" />
                 <input
                   type="text"
@@ -67,10 +67,10 @@ export function HomeHero({ state }: HomeHeroProps) {
               </div>
               <Link
                 href={searchHref}
-                className="group flex h-12 items-center justify-center gap-3 rounded-xl bg-gradient-to-r from-pink-500 via-rose-500 to-orange-500 px-5 text-sm font-bold shadow-[0_12px_35px_rgba(244,63,94,0.35)] transition duration-300 hover:scale-[1.03] sm:h-14 sm:rounded-[20px] sm:px-7"
+                className="group flex h-12 items-center justify-center gap-3 rounded-xl bg-gradient-to-r from-pink-500 via-rose-500 to-orange-500 px-5 text-sm font-bold shadow-[0_12px_35px_rgba(244,63,94,0.35)] transition duration-300 hover:scale-[1.03] hover:shadow-[0_15px_45px_rgba(244,63,94,0.55)] active:scale-[0.98] sm:h-14 sm:rounded-[20px] sm:px-7"
               >
                 Find Events
-                <ArrowRight size={17} className="transition group-hover:translate-x-1" />
+                <ArrowRight size={17} className="transition duration-300 group-hover:translate-x-1" />
               </Link>
             </div>
           </div>
@@ -163,7 +163,7 @@ export function HomeHero({ state }: HomeHeroProps) {
             </div>
           </article>
 
-          <div className="absolute bottom-6 right-2 rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur-xl">
+          <div className="badge-float absolute bottom-6 right-2 rounded-2xl border border-white/15 bg-white/10 p-4 shadow-xl backdrop-blur-xl transition duration-300 hover:scale-105">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-pink-500 to-orange-500">
                 <Ticket size={19} />

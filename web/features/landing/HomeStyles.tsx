@@ -66,12 +66,63 @@ export function HomeStyles() {
         }
       }
 
+      @keyframes gradientMove {
+        0% {
+          background-position: 0% 50%;
+        }
+
+        50% {
+          background-position: 100% 50%;
+        }
+
+        100% {
+          background-position: 0% 50%;
+        }
+      }
+
+      @keyframes pulseGlow {
+        0%,
+        100% {
+          transform: scale(1);
+          opacity: 0.15;
+        }
+
+        50% {
+          transform: scale(1.18);
+          opacity: 0.28;
+        }
+      }
+
+      @keyframes badgeFloat {
+        0%,
+        100% {
+          transform: translateY(0);
+        }
+
+        50% {
+          transform: translateY(-8px);
+        }
+      }
+
+      .animate-gradient {
+        background-size: 200% 200%;
+        animation: gradientMove 5s ease infinite;
+      }
+
       .hero-orb-one {
         animation: floatOne 9s ease-in-out infinite;
       }
 
       .hero-orb-two {
         animation: floatTwo 11s ease-in-out infinite;
+      }
+
+      .hero-orb-three {
+        animation: pulseGlow 7s ease-in-out infinite;
+      }
+
+      .badge-float {
+        animation: badgeFloat 4.5s ease-in-out infinite;
       }
 
       .floating-card {
@@ -92,20 +143,21 @@ export function HomeStyles() {
 
       .category-card {
         transition:
-          transform 350ms ease,
-          box-shadow 350ms ease;
+          transform 350ms cubic-bezier(0.16, 1, 0.3, 1),
+          box-shadow 350ms cubic-bezier(0.16, 1, 0.3, 1),
+          border-color 350ms ease;
       }
 
       .category-card:hover {
-        transform: translateY(-10px) rotate(-1deg);
+        transform: translateY(-10px) scale(1.01);
         box-shadow: 0 25px 60px rgba(31, 20, 47, 0.14);
       }
 
       .event-card {
         transition:
-          transform 350ms ease,
+          transform 350ms cubic-bezier(0.16, 1, 0.3, 1),
           border-color 350ms ease,
-          box-shadow 350ms ease;
+          box-shadow 350ms cubic-bezier(0.16, 1, 0.3, 1);
       }
 
       .event-card:hover {
@@ -132,6 +184,9 @@ export function HomeStyles() {
       @media (prefers-reduced-motion: reduce) {
         .hero-orb-one,
         .hero-orb-two,
+        .hero-orb-three,
+        .badge-float,
+        .animate-gradient,
         .floating-card,
         .floating-card-reverse,
         .featured-float,

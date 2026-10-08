@@ -54,7 +54,7 @@ export function HomeCategories({ state }: HomeCategoriesProps) {
                 <Link
                   key={category._id}
                   href={`/events?category=${encodeURIComponent(category.name)}`}
-                  className="category-card group relative overflow-hidden rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_15px_45px_rgba(27,20,40,0.07)]"
+                  className="category-card group relative overflow-hidden rounded-[28px] border border-black/5 bg-white p-6 shadow-[0_15px_45px_rgba(27,20,40,0.07)] transition-all duration-300 hover:border-pink-500/25 hover:shadow-[0_25px_60px_rgba(244,63,94,0.12)]"
                 >
                   <div
                     className={`absolute -right-16 -top-16 h-40 w-40 rounded-full bg-gradient-to-br ${style.color} opacity-15 blur-2xl transition duration-500 group-hover:scale-150 group-hover:opacity-30`}
@@ -69,7 +69,7 @@ export function HomeCategories({ state }: HomeCategoriesProps) {
                       <ArrowRight size={17} />
                     </div>
                   </div>
-                  <h3 className="relative mt-10 text-2xl font-black">
+                  <h3 className="relative mt-10 text-2xl font-black transition duration-300 group-hover:text-pink-600">
                     {category.name}
                   </h3>
                   <p className="relative mt-2 text-sm text-neutral-500">
@@ -79,7 +79,7 @@ export function HomeCategories({ state }: HomeCategoriesProps) {
                     className={`absolute bottom-0 left-0 h-1 w-0 bg-gradient-to-r ${style.color} transition-all duration-500 group-hover:w-full`}
                   />
                   {index === 0 && (
-                    <span className="absolute right-6 top-[88px] rounded-full bg-pink-50 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-pink-600">
+                    <span className="absolute right-6 top-[88px] rounded-full bg-pink-50 px-3 py-1 text-[10px] font-black uppercase tracking-wider text-pink-600 transition duration-300 group-hover:scale-105">
                       Popular
                     </span>
                   )}
